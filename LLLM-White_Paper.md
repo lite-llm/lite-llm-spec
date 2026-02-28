@@ -1,109 +1,71 @@
-# **Lite LLM**
-
-## **A Deterministic Tiered Large Language Model Architecture Scaling from 1B to 1Q Parameters**
+Below is the complete Lite LLM white paper in pure Markdown format. It is self-contained and references are externalized to References.md as requested.
 
 ---
 
-Author: Dust LLC
-Date: February 2026
-Status: Foundational White Paper
+# Lite LLM  
+## A Deterministic Tiered Large Language Model Architecture Scaling from 1B to 1Q Parameters
 
 ---
 
 ## Abstract
 
-**Lite LLM** is a Rust-native large language model architecture designed to scale from **1 billion (10⁹)** to **1 quadrillion (10¹⁵)** parameters while maintaining **bounded active compute per token**.
+Lite LLM is a Rust-native large language model architecture designed to scale from 1 billion (10^9) to 1 quadrillion (10^15) parameters while maintaining bounded active compute per token. Unlike dense transformer scaling, Lite LLM introduces Tiered Parameter Architecture (TPA) and Hierarchical Sparse Expert Routing (HSER) as first-class structural primitives.
 
-Unlike monolithic dense transformer models, Lite LLM introduces two structural primitives:
-
-1. **Tiered Parameter Architecture (TPA)** — capacity is organized into explicit parameter tiers (1B, 10B, 100B, 1T, …).
-2. **Hierarchical Sparse Expert Routing (HSER)** — deterministic multi-level routing ensures that only a bounded subset of experts activates per token.
-
-Lite LLM decouples **total parameter capacity** from **per-token compute**, enabling quadrillion-scale parameter banks without quadrillion-scale compute. The architecture is deterministic, checkpoint-compatible under expansion, storage-aware, and implemented entirely in Rust with explicit memory and routing guarantees.
+The architecture decouples total parameter capacity from per-token compute cost. Only a fixed, bounded subset of experts is activated per token, independent of the total parameter universe. Lite LLM is deterministic by construction, storage-aware, checkpoint-compatible under expansion, and designed for safe implementation in Rust.
 
 ---
 
 # 1. Introduction
 
-Scaling large language models traditionally increases dense parameter count, which increases:
+Traditional transformer scaling increases dense parameter count, resulting in:
 
-* Memory linearly
-* Compute quadratically (attention)
-* Training cost superlinearly
+- Linear memory growth  
+- Quadratic attention cost  
+- Exponential infrastructure pressure  
 
-This approach becomes infeasible beyond trillion scale.
+Lite LLM reframes scaling as parameter universe management rather than dense width growth. Total capacity may grow arbitrarily large while active compute remains bounded.
 
-Lite LLM instead establishes:
+The central invariant:
 
-> **Total capacity may grow arbitrarily; active compute remains bounded.**
+P_active << P_total
 
-This is achieved through:
-
-* Structured tier partitioning
-* Hierarchical sparse routing
-* Deterministic selection policies
-* Tier-aware storage placement
+This enables quadrillion-scale parameter banks without quadrillion-scale compute.
 
 ---
 
 # 2. Design Principles
 
-### P1. Bounded Active Compute
+## 2.1 Bounded Active Compute
 
-For any request:
+Active parameters per token are independent of total capacity.
 
-[
-P_{\text{active}} \ll P_{\text{total}}
-]
-
-Active parameters per token do not scale with total model capacity.
-
----
-
-### P2. Deterministic Routing
+## 2.2 Deterministic Routing
 
 Routing is a pure function:
 
-[
-R(h, W, \mathcal{T}, s)
-]
+R(h, W, T, s)
 
 where:
+- h = hidden state  
+- W = router weights  
+- T = TierSet  
+- s = deterministic seed  
 
-* ( h ) = hidden state
-* ( W ) = router weights
-* ( \mathcal{T} ) = TierSet
-* ( s ) = deterministic seed
+## 2.3 Tiering as a Structural Primitive
 
-No nondeterministic operations permitted.
+Tiering is encoded in:
+- Routing  
+- Checkpoint format  
+- Storage placement  
+- Runtime activation policy  
 
----
+## 2.4 Expandability
 
-### P3. First-Class Tiering
+New parameter tiers may be added without invalidating previous checkpoints.
 
-Tiering is structural:
+## 2.5 Rust-Native Correctness
 
-* Encoded in checkpoint format
-* Explicit in routing
-* Explicit in storage placement
-* Explicit in runtime policy
-
----
-
-### P4. Expandability
-
-New tiers may be added without retraining existing tiers and without invalidating previous checkpoints.
-
----
-
-### P5. Rust-Native Implementation
-
-All core logic implemented in safe Rust:
-
-* Explicit ownership
-* Trait-based device abstraction
-* Deterministic collectives
-* Unsafe confined to kernel backends
+All core logic is implemented in safe Rust. Unsafe code is isolated to kernel backends.
 
 ---
 
@@ -111,22 +73,18 @@ All core logic implemented in safe Rust:
 
 ## 3.1 Backbone Transformer
 
-Lite LLM uses a standard transformer backbone:
+Each layer l computes:
 
-Each layer ( l ):
+1. RMSNorm  
+2. Multi-head attention  
+3. Residual connection  
+4. RMSNorm  
+5. Tier-aware MoE feedforward  
+6. Residual connection  
 
-1. RMSNorm
-2. Multi-head attention
-3. Residual
-4. RMSNorm
-5. MoE feedforward (tier-aware)
-6. Residual
+Hidden state at token i:
 
-Hidden state:
-
-[
-\mathbf{h}_i^{(l)} \in \mathbb{R}^d
-]
+h_i^(l) ∈ R^d
 
 ---
 
@@ -134,147 +92,94 @@ Hidden state:
 
 ## 4.1 Tier Definition
 
-Let:
+Let T_max = {t1, t2, ..., tM} be all available tiers.
 
-[
-\mathcal{T}_{\max} = { t_1, t_2, \dots, t_M }
-]
+Each tier t defines:
 
-Each tier ( t ) defines:
+- Parameter budget B_t  
+- Expert banks  
+- Placement policy  
+- Activation rules  
 
-* Parameter budget ( B_t )
-* Expert banks
-* Placement policy
-* Activation eligibility
+Example tiers:
 
-Examples:
+- tier_1b  
+- tier_10b  
+- tier_100b  
+- tier_1t  
+- tier_1q  
 
-| Tier      | Target Capacity   |
-| --------- | ----------------- |
-| tier_1b   | 1B parameters     |
-| tier_10b  | 10B parameters    |
-| tier_100b | 100B parameters   |
-| tier_1t   | 1T parameters     |
-| tier_1q   | 1Q parameter bank |
+Total parameters:
+
+P_total = P_dense + Σ B_t
 
 ---
 
 ## 4.2 TierSet
 
-For each request:
+For a given request:
 
-[
-\mathcal{T} \subseteq \mathcal{T}_{\max}
-]
+T ⊆ T_max
 
-TierSet determines which tiers may be activated.
+TierSet determines which tiers may activate.
 
-Modes:
+Examples:
 
-* 1B Mode → {tier_1b}
-* 10B Mode → {tier_10b}
-* 100B Mode → {tier_100b}
-* Max Mode → {tier_1t, tier_10t, …}
-
-TierSet may be:
-
-* Exclusive
-* Cumulative
-* Budget-constrained
+- 1B mode → {tier_1b}  
+- 10B mode → {tier_10b}  
+- Max mode → {tier_1t, tier_10t, ...}
 
 ---
 
 # 5. Hierarchical Sparse Expert Routing (HSER)
 
-## 5.1 Structure
+For tier t:
 
-For each tier ( t ):
-
-* ( G_t ) groups
-* ( E_{t,g} ) experts per group
+- G_t groups  
+- E_t,g experts per group  
 
 Each expert:
 
-[
-\mathrm{Expert}_{t,g,e}: \mathbb{R}^d \to \mathbb{R}^d
-]
+Expert_t,g,e : R^d → R^d
 
 ---
 
-## 5.2 Routing Levels
+## 5.1 Hierarchical Conditional Probability
 
-### Level 1 — Tier Router
+Routing is expressed as:
 
-[
-\mathbf{s}*{\text{tier}}^{(l)} =
-W*{\text{tier}}^{(l)} \mathbf{h}_i^{(l)}
-]
+p(t, g, e | h, T)  
+= p(t | h, T) · p(g | t, h) · p(e | t, g, h)
 
-Mask to ( \mathcal{T} ), apply softmax:
-
-[
-S =
-\mathrm{TopK}*{\text{stable}}(
-\mathrm{softmax}(\mathbf{s}*{\text{tier}}^{(l)}|*{\mathcal{T}}),
-k*{\text{tier}},
-s)
-]
+If t ∉ T, then p(t, g, e | h, T) = 0.
 
 ---
 
-### Level 2 — Group Router
+## 5.2 Deterministic Top-K Selection
 
-For ( t \in S ):
+Selection uses stable total ordering:
 
-[
-\mathbf{s}*{\text{group},t}^{(l)} =
-W*{\text{group},t}^{(l)} \mathbf{h}_i^{(l)}
-]
+1. Sort by score descending  
+2. Break ties via seeded hash  
+3. Deterministic lexicographic order  
 
-[
-G_t^s =
-\mathrm{TopK}*{\text{stable}}(
-\mathrm{softmax}(\mathbf{s}*{\text{group},t}^{(l)}),
-k_g,
-s \oplus \mathrm{id}(t))
-]
-
----
-
-### Level 3 — Expert Router
-
-[
-\mathbf{s}*{\text{expert},t,g}^{(l)} =
-W*{\text{expert},t,g}^{(l)} \mathbf{h}_i^{(l)}
-]
-
-[
-E_{t,g}^s =
-\mathrm{TopK}*{\text{stable}}(
-\mathrm{softmax}(\mathbf{s}*{\text{expert},t,g}^{(l)}),
-k_e,
-s \oplus \mathrm{id}(t) \oplus g)
-]
+This guarantees reproducible routing across distributed ranks.
 
 ---
 
 ## 5.3 Active Expert Set
 
-[
-\mathcal{E}*{\text{active}}^{(l)} =
-\bigcup*{t \in S}
-\bigcup_{g \in G_t^s}
-E_{t,g}^s
-]
+For configuration:
 
-Cardinality:
+k_tier  
+k_g  
+k_e  
 
-[
-|\mathcal{E}*{\text{active}}^{(l)}|
-= k*{\text{tier}} \cdot k_g \cdot k_e
-]
+Active experts per layer:
 
-Independent of total tier count.
+|E_active| = k_tier × k_g × k_e
+
+Independent of total expert count.
 
 ---
 
@@ -282,203 +187,162 @@ Independent of total tier count.
 
 Let:
 
-[
-P_{\text{total}} =
-\sum_{t \in \mathcal{T}_{\max}} B_t
-]
-
-Let:
-
-[
-P_{\text{active}}^{(l)}
-=======================
-
-C_{\text{dense}} +
-\sum_{e \in \mathcal{E}_{\text{active}}^{(l)}} |e|
-]
+C_dense = dense attention + normalization cost  
+Θ_max = maximum expert parameter size  
+L = number of layers  
 
 Then:
 
-[
-P_{\text{active}}
-\le
-L
-\left(
-C_{\text{dense}}
-+
-k_{\text{tier}} k_g k_e
-\cdot
-\max_{t,g,e} |e|
-\right)
-]
+P_active ≤ L ( C_dense + k_tier k_g k_e Θ_max )
 
-This bound is independent of ( P_{\text{total}} ).
+Thus:
+
+∂P_active / ∂P_total = 0
+
+Active compute is independent of total capacity.
 
 ---
 
-## Corollary — Quadrillion-Scale Feasibility
+# 7. Communication Complexity
+
+Let:
+
+N = tokens per step  
+d = hidden dimension  
+K = k_tier k_g k_e  
+R_EP = expert parallel ranks  
+
+Total dispatch events per step:
+
+A = N L K
+
+Per-rank communication volume:
+
+V_r = (N L K d) / R_EP
+
+Thus communication scales with active experts, not total parameter count.
+
+---
+
+# 8. No-Starvation Lemma
+
+Let:
+
+M_t = experts in tier t  
+A_t = assignments to tier t per step  
+
+Expected updates per expert:
+
+E[X_e] = A_t / M_t
 
 If:
 
-* ( k_{\text{tier}} = 1 )
-* ( k_g = 2 )
-* ( k_e = 2 )
-* Expert size = 8M parameters
-* ( L = 128 )
+A_t / M_t ≥ ρ > 0
 
-Then:
+Then starvation probability over T steps:
 
-[
-P_{\text{active}} \approx 4.1 \text{B per token}
-]
+Pr(X_e = 0) ≤ exp(-Tρ)
+
+Thus starvation probability decays exponentially.
+
+---
+
+# 9. Load-Balancing Auxiliary Loss
+
+To prevent routing collapse:
+
+L_aux = Σ KL(u || Uniform)
+
+applied at:
+
+- Tier level  
+- Group level  
+- Expert level  
+
+Ensures distributional spread.
+
+---
+
+# 10. Storage Tiering
+
+Each tier assigned placement:
+
+- HBM  
+- DRAM  
+- NVMe  
+- Object store  
+
+Expected activation:
+
+π_t = E[p_t(h)]
+
+Prefetch priority:
+
+priority(t) = π_t × size(t)
+
+---
+
+# 11. Tier Expansion Operator
+
+To add new tier t_new:
+
+1. Freeze existing tiers  
+2. Initialize new experts  
+3. Train new routing heads  
+4. Update checkpoint manifest  
+
+Backward compatibility preserved.
+
+---
+
+# 12. Deterministic Entropy Contract
+
+Routing selection is a function:
+
+S = TopK_stable(scores, k, seed)
+
+Seeded tie-breaking ensures identical ordering across machines.
+
+Floating-point nondeterminism can be removed via quantized routing logits.
+
+---
+
+# 13. Quadrillion-Scale Feasibility
+
+Example:
+
+k_tier = 1  
+k_g = 2  
+k_e = 2  
+Θ_max = 8M parameters  
+L = 128  
+
+P_active ≈ 4B per token  
 
 Even if:
 
-[
-P_{\text{total}} = 10^{15}
-]
+P_total = 10^15
 
 Active compute remains bounded.
 
 ---
 
-# 7. Tier Expansion Operator
+# 14. Conclusion
 
-Adding new tier ( t_{\text{new}} ):
+Lite LLM introduces:
 
-1. Freeze existing tiers
-2. Initialize new experts and router heads
-3. Train new parameters
-4. Update checkpoint manifest
-
----
-
-## Theorem — Backward Compatibility
-
-Any checkpoint valid for TierSet ( \mathcal{T} ) remains valid for any superset ( \mathcal{T}' \supseteq \mathcal{T} ).
-
-Proof:
-
-* Routing mask ignores absent tiers.
-* Checkpoints are tier-indexed.
-* Existing weights remain untouched.
-
----
-
-# 8. Storage Tiering
-
-Each tier assigned placement:
-
-[
-P_t \in
-{ \text{HBM}, \text{DRAM}, \text{NVMe}, \text{Object} }
-]
-
-Expected activation:
-
-[
-\pi_t =
-\mathbb{E}[p_t(h)]
-]
-
-Prefetch priority:
-
-[
-\text{priority}(t)
-==================
-
-\pi_t \cdot \text{size}(t)
-]
-
-Runtime promotes tiers asynchronously.
-
----
-
-# 9. Auxiliary Load-Balancing Loss
-
-To prevent expert collapse:
-
-[
-\mathcal{L}_{\text{aux}}
-========================
-
-\sum_{l}
-\sum_{\text{levels}}
-\alpha
-\cdot
-\mathrm{CV}(p)
-]
-
-where:
-
-[
-\mathrm{CV}(p)
-==============
-
-\frac{\mathrm{std}(p)}{\mathrm{mean}(p)}
-]
-
----
-
-# 10. Budget-Constrained Tier Selection
-
-Given:
-
-* Latency limit ( \tau )
-* Memory limit ( \mu )
-
-Solve:
-
-[
-\max_{\mathcal{T}}
-\sum_{t \in \mathcal{T}} U_t
-]
-
-subject to:
-
-[
-\sum c_t \le \tau
-]
-
-[
-\sum m_t \le \mu
-]
-
-Small knapsack; greedy approximation sufficient.
-
----
-
-# 11. Deterministic Guarantee
-
-Routing uses:
-
-* Stable sorting
-* Seeded tie-breaking
-* No nondeterministic reductions
-
-Therefore:
-
-[
-R(h, W, \mathcal{T}, s)
-]
-
-is deterministic across machines.
-
----
-
-# 12. Conclusion
-
-Lite LLM establishes:
-
-* Tiered parameter architecture
-* Deterministic hierarchical routing
-* Bounded active compute
-* Quadrillion-scale parameter capacity
-* Expandable checkpoints
-* Storage-aware execution
-* Rust-native safety
+- Tiered Parameter Architecture  
+- Deterministic Hierarchical Sparse Expert Routing  
+- Bounded active compute independent of total capacity  
+- Expert parallel communication scaling  
+- No-starvation guarantees  
+- Storage-aware execution  
+- Rust-native safety  
 
 Lite LLM is not a larger transformer.
-It is a **capacity-partitioned parameter universe with bounded activation and deterministic expansion**.
+
+It is a structured parameter universe with deterministic activation and bounded computation, enabling practical trillion-scale systems and structurally feasible quadrillion-scale capacity.
 
 ---
+
+References are provided in References.md.
