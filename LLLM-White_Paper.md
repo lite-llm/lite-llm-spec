@@ -4,6 +4,12 @@ A Deterministic Tiered Large Language Model Architecture Scaling from 1B to 1Q P
 
 ⸻
 
+Author: Dust LLC
+Date: February 2026
+Status: Foundational White Paper (Canonical Edition)
+
+⸻
+
 Abstract
 
 Lite LLM is a Rust-native large language model architecture designed to scale from 1 billion (10⁹) to 1 quadrillion (10¹⁵) parameters while maintaining bounded active compute per token.
