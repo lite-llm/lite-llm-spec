@@ -191,3 +191,246 @@ Bounded Top-K at each level implies P_{\text{active}} \le L(C_{\text{dense}} + K
 Stable Top-K under a seeded total order yields bitwise-reproducible selection, eliminating nondeterminism in distributed MoE dispatch.
 
 ⸻
+
+Appendix A — Communication Complexity of Expert Parallel Dispatch
+
+A.1 System Model
+
+Assume:
+	•	N: number of tokens per global step (after DP aggregation)
+	•	L: number of layers
+	•	d: hidden dimension
+	•	K = k_{\text{tier}} k_g k_e: active experts per token
+	•	R_{\text{EP}}: number of expert-parallel ranks
+	•	Experts are partitioned evenly across EP ranks
+	•	Each token must be dispatched to its selected experts
+
+Let each token embedding vector be d-dimensional, with datatype size b bytes.
+
+⸻
+
+A.2 Token Assignment Events
+
+Total expert assignments per step:
+
+A = N \cdot L \cdot K
+
+Each assignment corresponds to one token being sent to exactly one expert (residing on some EP rank).
+
+⸻
+
+A.3 Expected Per-Rank Traffic
+
+Assume balanced routing (idealized case):
+	•	Experts evenly distributed across ranks
+	•	Routing probabilities approximately uniform within a tier
+
+Probability a given assignment targets a particular rank:
+
+\frac{1}{R_{\text{EP}}}
+
+Expected assignments received per rank:
+
+\mathbb{E}[A_r] = \frac{A}{R_{\text{EP}}}
+
+⸻
+
+A.4 Communication Volume
+
+Each assignment requires sending a vector of size d \cdot b bytes.
+
+Total communication volume per step:
+
+V_{\text{total}} = A \cdot d \cdot b
+
+Per rank (expected):
+
+V_r = \frac{A}{R_{\text{EP}}} \cdot d \cdot b
+
+Substitute A = N L K:
+
+V_r = \frac{N L K d b}{R_{\text{EP}}}
+
+⸻
+
+A.5 Communication Complexity Theorem
+
+Theorem (EP Communication Bound)
+
+Under balanced routing:
+
+V_r = O\!\left(\frac{N L K d}{R_{\text{EP}}}\right)
+
+Thus communication per rank decreases linearly with expert parallel width.
+
+⸻
+
+A.6 Worst-Case Bound (Imbalanced Routing)
+
+Worst-case scenario: all tokens route to experts on a single rank.
+
+Then:
+
+V_{\text{worst}} = N L K d b
+
+However, under the load-balancing auxiliary loss, we bound routing variance.
+
+Let u_r be marginal load per rank.
+
+Load-balancing ensures:
+
+\mathrm{Var}(u_r) \le \epsilon
+
+Thus with high probability:
+
+A_r \le \frac{A}{R_{\text{EP}}} + O(\sqrt{A \log R_{\text{EP}}})
+
+(by Bernstein / Hoeffding inequality)
+
+So worst-case deviation scales sublinearly in total assignments.
+
+⸻
+
+A.7 Scaling Implication
+
+Crucially:
+
+\frac{\partial V_r}{\partial P_{\text{total}}} = 0
+
+Communication depends only on:
+	•	tokens N
+	•	active experts K
+	•	model width d
+	•	number of layers L
+
+Not on total parameter capacity.
+
+This preserves quadrillion-scale feasibility.
+
+⸻
+
+Appendix B — No-Starvation Lemma
+
+The second failure point at extreme scale is expert starvation:
+experts exist but never receive gradient updates.
+
+We formalize sufficient conditions to prevent starvation.
+
+⸻
+
+B.1 Definitions
+
+Let:
+	•	M_t = \sum_g E_{t,g}: number of experts in tier t
+	•	A_t: total assignments to tier t per step
+	•	U_{t,e}^{(n)}: indicator variable that expert e in tier t receives at least one assignment in step n
+
+We consider a window of T training steps.
+
+⸻
+
+B.2 Assignment Model
+
+Assume routing selections follow probabilities:
+
+p_{t,g,e}(h)
+
+Under load-balancing loss, assume bounded concentration:
+
+\exists \delta > 0:
+\quad
+p_{t,g,e}(h) \ge \delta / M_t
+\quad
+\forall e \text{ in active tier}
+
+That is, no expert’s marginal probability falls below a floor.
+
+⸻
+
+B.3 Expected Assignments Per Expert
+
+Expected assignments per expert per step:
+
+\mathbb{E}[X_e] = \frac{A_t}{M_t}
+
+Over T steps:
+
+\mathbb{E}[X_e^{(T)}] = T \frac{A_t}{M_t}
+
+⸻
+
+B.4 No-Starvation Condition
+
+Define minimum update density:
+
+\rho > 0
+
+Require:
+
+\frac{A_t}{M_t} \ge \rho
+
+Then expected updates per expert per step ≥ ρ.
+
+⸻
+
+B.5 Concentration Bound
+
+Let X_e^{(T)} be total assignments to expert e over T steps.
+
+Assuming independence across tokens (approximation valid for large batch):
+
+\Pr\left(
+X_e^{(T)} = 0
+\right)
+\le
+\exp\left(- T \frac{A_t}{M_t}\right)
+
+(by Chernoff bound)
+
+Thus if:
+
+T \frac{A_t}{M_t} \gg 1
+
+probability of starvation decays exponentially.
+
+⸻
+
+B.6 No-Starvation Lemma
+
+Lemma
+
+If
+
+\frac{A_t}{M_t} \ge \rho > 0
+
+and routing probabilities are bounded below by \delta / M_t,
+then for any expert e:
+
+\Pr\left(
+X_e^{(T)} = 0
+\right)
+\le
+\exp(-T \rho)
+
+Therefore starvation probability decreases exponentially in training window.
+
+⸻
+
+B.7 Interpretation for Quadrillion Scale
+
+At 1Q capacity:
+	•	M_t may be enormous.
+	•	Thus A_t/M_t may be tiny.
+
+Therefore Lite LLM must:
+	1.	Train tiers incrementally (curriculum expansion),
+	2.	Restrict active subset of experts during early phases,
+	3.	Increase throughput N,
+	4.	Or increase K carefully.
+
+This validates the architecture’s “parameter universe” concept:
+not all experts are meant to learn simultaneously.
+
+⸻
+
+
