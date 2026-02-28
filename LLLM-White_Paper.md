@@ -1,9 +1,15 @@
-Below is the complete Lite LLM white paper in pure Markdown format. It is self-contained and references are externalized to References.md as requested.
-
 ---
 
 # Lite LLM  
 ## A Deterministic Tiered Large Language Model Architecture Scaling from 1B to 1Q Parameters
+
+---
+
+Author: Dust LLC
+
+Date: February 2026
+
+Status: Foundational White Paper
 
 ---
 
